@@ -16,6 +16,10 @@ export class WalletMonitor {
   private stateLoaded = false;
   private stopping = false;
   private discoveryTimer: NodeJS.Timeout | null = null;
+  private syncTimer: NodeJS.Timeout | null = null;
+  private liveSlot: number | null = null;
+  private lastSlotAt = 0;
+  private slotsSeen = 0;
   private activityTimer: NodeJS.Timeout | null = null;
   private retryTimer: NodeJS.Timeout | null = null;
   private recoveryPromise: Promise<void> | null = null;
@@ -51,18 +55,51 @@ export class WalletMonitor {
       async (providerName) => {
         if (this.stopping) return;
         await this.refreshAfterReconnect(providerName);
-      }
+      },
+      (slot) => this.handleSlot(slot)
     );
     this.websocket.start(this.currentTokenAccounts());
     this.discoveryTimer = setInterval(() => {
       void this.refreshDiscovery();
     }, config.monitor.discoveryIntervalMs);
+    this.syncTimer = setInterval(() => {
+      void this.checkSync();
+    }, config.monitor.syncCheckIntervalMs);
     console.log("[MONITOR] Live monitoring initialized");
+  }
+
+  private handleSlot(slot: number): void {
+    this.liveSlot = slot;
+    this.lastSlotAt = Date.now();
+    this.slotsSeen += 1;
+    if (this.slotsSeen % config.monitor.slotLogEvery === 0) {
+      console.log(`[BLOCK] Live slot ${slot}`);
+    }
+  }
+
+  private async checkSync(): Promise<void> {
+    if (this.stopping) return;
+    try {
+      const rpcSlot = await this.rpc.getSlot();
+      if (this.liveSlot === null || Date.now() - this.lastSlotAt > 10_000) {
+        console.warn(`[SYNC] No live slots from WebSocket (RPC slot ${rpcSlot}) - NOT SYNCED`);
+        return;
+      }
+      const behind = rpcSlot - this.liveSlot;
+      const status = behind > config.monitor.maxSlotLag ? "LAGGING" : "SYNCED";
+      console.log(
+        `[SYNC] ${status} | ws slot ${this.liveSlot} | rpc slot ${rpcSlot} | behind ${behind}`
+      );
+    } catch {
+      console.warn("[SYNC] RPC slot check failed");
+    }
   }
 
   async stop(): Promise<void> {
     this.stopping = true;
     if (this.discoveryTimer) clearInterval(this.discoveryTimer);
+    if (this.syncTimer) clearInterval(this.syncTimer);
+    this.syncTimer = null;
     if (this.activityTimer) clearTimeout(this.activityTimer);
     if (this.retryTimer) clearTimeout(this.retryTimer);
     this.discoveryTimer = null;

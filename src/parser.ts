@@ -14,6 +14,8 @@ export interface TokenMovement {
   amount: string;
   fromOwner: string;
   toOwner: string;
+  txFrom: string;
+  slot: number;
   blockTime: number | null;
 }
 
@@ -154,6 +156,8 @@ export function parseTokenMovements(
       amount: formatRawAmount(absoluteAmount, token.decimals),
       fromOwner: direction === "INFLOW" ? counterparty ?? UNKNOWN_OWNER : monitoredWallet,
       toOwner: direction === "OUTFLOW" ? counterparty ?? UNKNOWN_OWNER : monitoredWallet,
+      txFrom: keys[0] ?? UNKNOWN_OWNER,
+      slot: transaction.slot,
       blockTime: transaction.blockTime ?? null,
     });
   }

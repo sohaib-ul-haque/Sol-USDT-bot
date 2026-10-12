@@ -9,6 +9,7 @@ export interface ActivityEvent {
 
 type SubscriptionRequest =
   | { type: "logs" }
+  | { type: "slot" }
   | { type: "account"; account: string };
 
 export class SolanaWebSocket {
@@ -30,7 +31,8 @@ export class SolanaWebSocket {
     private readonly providers: NamedEndpoint[],
     private readonly monitoredWallet: string,
     private readonly onActivity: (event: ActivityEvent) => void,
-    private readonly onConnected: (providerName: string) => Promise<void>
+    private readonly onConnected: (providerName: string) => Promise<void>,
+    private readonly onSlot: (slot: number) => void
   ) {
     if (providers.length !== 2) {
       throw new Error("Exactly two WebSocket providers are required");
@@ -93,6 +95,7 @@ export class SolanaWebSocket {
         { mentions: [this.monitoredWallet] },
         { commitment: "confirmed" },
       ], { type: "logs" });
+      this.sendSubscription("slotSubscribe", [], { type: "slot" });
       this.subscribeMissingAccounts();
 
       this.heartbeatTimer = setInterval(() => {
@@ -181,7 +184,7 @@ export class SolanaWebSocket {
       method?: unknown;
       params?: {
         subscription?: unknown;
-        result?: { context?: { slot?: unknown }; value?: unknown };
+        result?: { context?: { slot?: unknown }; value?: unknown; slot?: unknown };
       };
     };
 
@@ -203,6 +206,13 @@ export class SolanaWebSocket {
     if (typeof subscriptionId !== "number") return;
     const subscription = this.subscriptions.get(subscriptionId);
     if (!subscription) return;
+
+    if (subscription.type === "slot") {
+      const liveSlot = value.params?.result?.slot;
+      if (typeof liveSlot === "number") this.onSlot(liveSlot);
+      return;
+    }
+
     const slotValue = value.params?.result?.context?.slot;
     const slot = typeof slotValue === "number" ? slotValue : undefined;
 

@@ -46,20 +46,17 @@ export class TelegramService {
   }
 
   async sendMovement(movement: TokenMovement): Promise<void> {
-    const directionTitle = movement.direction === "INFLOW" ? "🟢" : "🔴";
-    const readableTime = movement.blockTime
-      ? new Date(movement.blockTime * 1_000).toISOString().replace("T", " ").replace(".000Z", " UTC")
-      : "Unknown / unavailable";
+    const directionLabel = movement.direction === "INFLOW" ? "Inflow" : "Outflow";
     const text =
-      `${directionTitle} <b>${movement.symbol} ${movement.direction}</b>\n\n` +
+      `<b>${movement.symbol} ${directionLabel}</b>\n\n` +
       `<b>Wallet:</b> ${escapeHtml(this.walletLabel)}\n` +
       `<b>Amount:</b> ${formatDecimal(movement.amount)} ${movement.symbol}\n` +
+      `<b>Tx From:</b> <code>${escapeHtml(movement.txFrom)}</code>\n` +
       `<b>From:</b> <code>${escapeHtml(movement.fromOwner)}</code>\n` +
       `<b>To:</b> <code>${escapeHtml(movement.toOwner)}</code>\n` +
-      `<b>Direction:</b> ${movement.direction === "INFLOW" ? "Inflow" : "Outflow"}\n` +
-      `<b>Transaction:</b> <code>${movement.signature}</code>\n` +
-      `<b>Time:</b> ${readableTime}\n` +
-      `<b>Explorer:</b> https://solscan.io/tx/${movement.signature}`;
+      `<b>Tx:</b> <code>${movement.signature}</code>\n` +
+      `<b>Block:</b> ${movement.slot}\n` +
+      `<a href="https://solscan.io/tx/${movement.signature}">Open on Solscan</a>`;
 
     const delays = [0, 2_000, 5_000];
     for (let attempt = 0; attempt < delays.length; attempt += 1) {

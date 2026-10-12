@@ -90,6 +90,9 @@ export const config = {
   monitor: {
     discoveryIntervalMs: 5 * 60_000,
     activityDebounceMs: 750,
+    slotLogEvery: 1,
+    syncCheckIntervalMs: 30_000,
+    maxSlotLag: 10,
     failedRecoveryRetryMs: 15_000,
     recoveryPageSize: 100,
     maxRecoveryPagesPerAddress: 10,
