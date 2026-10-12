@@ -23,7 +23,7 @@ async function main(): Promise<void> {
   const balanceService = new BalanceService(rpc, config.wallet.publicKey);
   const telegram = new TelegramService(
     config.telegram.token,
-    config.telegram.chatId,
+    config.telegram.chatIds,
     config.wallet.label,
     balanceService
   );

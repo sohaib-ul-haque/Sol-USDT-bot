@@ -22,7 +22,7 @@ export class TelegramService {
 
   constructor(
     token: string,
-    private readonly chatId: string,
+    private readonly chatIds: string[],
     private readonly walletLabel: string,
     private readonly balanceService: BalanceService
   ) {
@@ -58,22 +58,34 @@ export class TelegramService {
       `<b>Block:</b> ${movement.slot}\n` +
       `<a href="https://solscan.io/tx/${movement.signature}">Open on Solscan</a>`;
 
+    const results = await Promise.all(
+      this.chatIds.map((chatId) => this.deliver(chatId, text))
+    );
+    const delivered = results.filter(Boolean).length;
+    if (delivered === 0) {
+      throw new Error("Telegram did not acknowledge the alert after retries");
+    }
+    console.log(
+      `[ALERT] ${movement.symbol} ${movement.direction.toLowerCase()} sent to ${delivered}/${this.chatIds.length} chat(s)`
+    );
+  }
+
+  private async deliver(chatId: string, text: string): Promise<boolean> {
     const delays = [0, 2_000, 5_000];
     for (let attempt = 0; attempt < delays.length; attempt += 1) {
       const delay = delays[attempt] ?? 0;
       if (delay > 0) await sleep(delay);
       try {
-        await this.bot.telegram.sendMessage(this.chatId, text, {
+        await this.bot.telegram.sendMessage(chatId, text, {
           parse_mode: "HTML",
           link_preview_options: { is_disabled: true },
         });
-        console.log(`[ALERT] ${movement.symbol} ${movement.direction.toLowerCase()} sent`);
-        return;
+        return true;
       } catch {
-        console.warn(`[TELEGRAM] Alert delivery attempt ${attempt + 1} failed`);
+        console.warn(`[TELEGRAM] Delivery to chat ${chatId} attempt ${attempt + 1} failed`);
       }
     }
-    throw new Error("Telegram did not acknowledge the alert after retries");
+    return false;
   }
 
   private registerCommands(): void {
@@ -102,6 +114,6 @@ export class TelegramService {
   }
 
   private isAuthorized(context: Context): boolean {
-    return String(context.chat?.id ?? "") === this.chatId;
+    return this.chatIds.includes(String(context.chat?.id ?? ""));
   }
 }

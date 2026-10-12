@@ -59,15 +59,22 @@ for (const token of Object.values(OFFICIAL_TOKENS)) {
 
 const monitoredWallet = required("MONITORED_WALLET");
 const monitoredWalletPublicKey = publicKey("MONITORED_WALLET", monitoredWallet);
-const telegramChatId = required("TELEGRAM_CHAT_ID");
-if (!/^-?\d+$/.test(telegramChatId)) {
-  throw new Error("TELEGRAM_CHAT_ID must be a numeric Telegram chat ID");
+const telegramChatIds = [
+  ...new Set(
+    required("TELEGRAM_CHAT_ID")
+      .split(",")
+      .map((id) => id.trim())
+      .filter((id) => id.length > 0)
+  ),
+];
+if (telegramChatIds.length === 0 || !telegramChatIds.every((id) => /^-?\d+$/.test(id))) {
+  throw new Error("TELEGRAM_CHAT_ID must be one or more comma-separated numeric chat IDs");
 }
 
 export const config = {
   telegram: {
     token: required("TELEGRAM_BOT_TOKEN"),
-    chatId: telegramChatId,
+    chatIds: telegramChatIds,
   },
   wallet: {
     address: monitoredWallet,
