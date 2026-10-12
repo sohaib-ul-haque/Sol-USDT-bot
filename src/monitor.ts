@@ -1,5 +1,5 @@
 import { ConfirmedSignatureInfo, PublicKey } from "@solana/web3.js";
-import { config, OFFICIAL_TOKENS, TokenSymbol } from "./config";
+import { config, OFFICIAL_TOKENS, TokenSymbol, WalletConfig } from "./config";
 import { parseTokenMovements } from "./parser";
 import { RpcPool } from "./rpc";
 import { StateStore } from "./state";
@@ -27,7 +27,9 @@ export class WalletMonitor {
   constructor(
     private readonly rpc: RpcPool,
     private readonly telegram: TelegramService,
-    private readonly state: StateStore
+    private readonly state: StateStore,
+    private readonly wallet: WalletConfig,
+    private readonly logSlots: boolean
   ) {}
 
   async start(): Promise<void> {
@@ -50,7 +52,7 @@ export class WalletMonitor {
 
     this.websocket = new SolanaWebSocket(
       config.rpc.websocket,
-      config.wallet.address,
+      this.wallet.address,
       (event) => this.handleActivity(event),
       async (providerName) => {
         if (this.stopping) return;
@@ -62,17 +64,19 @@ export class WalletMonitor {
     this.discoveryTimer = setInterval(() => {
       void this.refreshDiscovery();
     }, config.monitor.discoveryIntervalMs);
-    this.syncTimer = setInterval(() => {
-      void this.checkSync();
-    }, config.monitor.syncCheckIntervalMs);
-    console.log("[MONITOR] Live monitoring initialized");
+    if (this.logSlots) {
+      this.syncTimer = setInterval(() => {
+        void this.checkSync();
+      }, config.monitor.syncCheckIntervalMs);
+    }
+    console.log(`[MONITOR] Live monitoring initialized for ${this.wallet.label}`);
   }
 
   private handleSlot(slot: number): void {
     this.liveSlot = slot;
     this.lastSlotAt = Date.now();
     this.slotsSeen += 1;
-    if (this.slotsSeen % config.monitor.slotLogEvery === 0) {
+    if (this.logSlots && this.slotsSeen % config.monitor.slotLogEvery === 0) {
       console.log(`[BLOCK] Live slot ${slot}`);
     }
   }
@@ -128,11 +132,11 @@ export class WalletMonitor {
     for (const symbol of ["USDC", "USDT"] as const) {
       const token = OFFICIAL_TOKENS[symbol];
       const accounts = await this.rpc.getOwnedTokenAccounts(
-        config.wallet.publicKey,
+        this.wallet.publicKey,
         new PublicKey(token.mint)
       );
       for (const account of accounts) {
-        if (account.mint === token.mint && account.owner === config.wallet.address) {
+        if (account.mint === token.mint && account.owner === this.wallet.address) {
           next[symbol].add(account.address);
         }
       }
@@ -141,7 +145,7 @@ export class WalletMonitor {
     this.accountsByToken.USDC = next.USDC;
     this.accountsByToken.USDT = next.USDT;
     console.log(
-      `[MONITOR] Watching ${next.USDC.size} USDC account(s), ${next.USDT.size} USDT account(s)`
+      `[MONITOR] ${this.wallet.label}: watching ${next.USDC.size} USDC account(s), ${next.USDT.size} USDT account(s)`
     );
   }
 
@@ -265,7 +269,7 @@ export class WalletMonitor {
     const movements = parseTokenMovements(
       transaction,
       signatureInfo.signature,
-      config.wallet.address,
+      this.wallet.address,
       new Set(this.state.snapshot().trackedTokenAccounts)
     );
 
@@ -276,7 +280,7 @@ export class WalletMonitor {
       ) {
         continue;
       }
-      await this.telegram.sendMovement(movement);
+      await this.telegram.sendMovement(movement, this.wallet.label);
       this.deliveredMovementIds.add(movement.movementId);
       await this.state.markMovementProcessed(movement.movementId);
       this.deliveredMovementIds.delete(movement.movementId);
@@ -301,7 +305,7 @@ export class WalletMonitor {
   }
 
   private recoveryAddresses(includeStored = true): string[] {
-    const addresses = new Set<string>([config.wallet.address, ...this.currentTokenAccounts()]);
+    const addresses = new Set<string>([this.wallet.address, ...this.currentTokenAccounts()]);
     if (includeStored && this.stateLoaded) {
       for (const account of this.state.snapshot().trackedTokenAccounts) addresses.add(account);
     }

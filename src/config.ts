@@ -57,8 +57,42 @@ for (const token of Object.values(OFFICIAL_TOKENS)) {
   publicKey(`${token.symbol} mint`, token.mint);
 }
 
-const monitoredWallet = required("MONITORED_WALLET");
-const monitoredWalletPublicKey = publicKey("MONITORED_WALLET", monitoredWallet);
+export interface WalletConfig {
+  address: string;
+  publicKey: PublicKey;
+  label: string;
+}
+
+// MONITORED_WALLETS=address:label,address:label  (falls back to MONITORED_WALLET + MONITORED_WALLET_LABEL)
+function parseWallets(): WalletConfig[] {
+  const list = process.env["MONITORED_WALLETS"]?.trim();
+  const entries = list
+    ? list
+        .split(",")
+        .map((entry) => entry.trim())
+        .filter((entry) => entry.length > 0)
+        .map((entry) => {
+          const separator = entry.indexOf(":");
+          if (separator <= 0 || separator === entry.length - 1) {
+            throw new Error("MONITORED_WALLETS entries must look like address:label");
+          }
+          return {
+            address: entry.slice(0, separator).trim(),
+            label: entry.slice(separator + 1).trim(),
+          };
+        })
+    : [{ address: required("MONITORED_WALLET"), label: required("MONITORED_WALLET_LABEL") }];
+
+  if (entries.length === 0) throw new Error("MONITORED_WALLETS has no wallets");
+  const seen = new Set<string>();
+  return entries.map(({ address, label }) => {
+    if (seen.has(address)) throw new Error(`Duplicate monitored wallet: ${address}`);
+    seen.add(address);
+    return { address, label, publicKey: publicKey("Monitored wallet", address) };
+  });
+}
+
+const monitoredWallets = parseWallets();
 const telegramChatIds = [
   ...new Set(
     required("TELEGRAM_CHAT_ID")
@@ -76,11 +110,7 @@ export const config = {
     token: required("TELEGRAM_BOT_TOKEN"),
     chatIds: telegramChatIds,
   },
-  wallet: {
-    address: monitoredWallet,
-    publicKey: monitoredWalletPublicKey,
-    label: required("MONITORED_WALLET_LABEL"),
-  },
+  wallets: monitoredWallets,
   rpc: {
     http: [
       { name: "Helius", url: endpoint("SOLANA_RPC_HELIUS", "http") },

@@ -23,8 +23,7 @@ export class TelegramService {
   constructor(
     token: string,
     private readonly chatIds: string[],
-    private readonly walletLabel: string,
-    private readonly balanceService: BalanceService
+    private readonly wallets: { label: string; balanceService: BalanceService }[]
   ) {
     this.bot = new Telegraf(token);
     this.registerCommands();
@@ -45,11 +44,11 @@ export class TelegramService {
     this.started = false;
   }
 
-  async sendMovement(movement: TokenMovement): Promise<void> {
+  async sendMovement(movement: TokenMovement, walletLabel: string): Promise<void> {
     const directionLabel = movement.direction === "INFLOW" ? "Inflow" : "Outflow";
     const text =
       `<b>${movement.symbol} ${directionLabel}</b>\n\n` +
-      `<b>Wallet:</b> ${escapeHtml(this.walletLabel)}\n` +
+      `<b>Wallet:</b> ${escapeHtml(walletLabel)}\n` +
       `<b>Amount:</b> ${formatDecimal(movement.amount)} ${movement.symbol}\n` +
       `<b>Tx From:</b> <code>${escapeHtml(movement.txFrom)}</code>\n` +
       `<b>From:</b> <code>${escapeHtml(movement.fromOwner)}</code>\n` +
@@ -92,20 +91,24 @@ export class TelegramService {
     this.bot.start(async (context) => {
       if (!this.isAuthorized(context)) return;
       await context.reply(
-        `${this.walletLabel} read-only Solana USDC/USDT wallet monitor.\nUse /balance for current SOL, USDC, and USDT balances.`
+        `Read-only Solana USDC/USDT wallet monitor for: ${this.wallets.map((w) => w.label).join(", ")}.\nUse /balance for current SOL, USDC, and USDT balances.`
       );
     });
 
     this.bot.command("balance", async (context) => {
       if (!this.isAuthorized(context)) return;
       try {
-        const balances = await this.balanceService.getCurrentBalances();
-        await context.reply(
-          `💰 ${this.walletLabel} Balance\n\n` +
-            `SOL: ${formatDecimal(balances.sol)}\n` +
-            `USDC: ${formatDecimal(balances.usdc)}\n` +
-            `USDT: ${formatDecimal(balances.usdt)}`
-        );
+        const sections: string[] = [];
+        for (const { label, balanceService } of this.wallets) {
+          const balances = await balanceService.getCurrentBalances();
+          sections.push(
+            `💰 ${label} Balance\n` +
+              `SOL: ${formatDecimal(balances.sol)}\n` +
+              `USDC: ${formatDecimal(balances.usdc)}\n` +
+              `USDT: ${formatDecimal(balances.usdt)}`
+          );
+        }
+        await context.reply(sections.join("\n\n"));
       } catch {
         console.warn("[TELEGRAM] /balance RPC request failed");
         await context.reply("Balance lookup is temporarily unavailable. Please try again shortly.");

@@ -20,26 +20,34 @@ async function main(): Promise<void> {
   );
   await rpc.getSlot();
 
-  const balanceService = new BalanceService(rpc, config.wallet.publicKey);
   const telegram = new TelegramService(
     config.telegram.token,
     config.telegram.chatIds,
-    config.wallet.label,
-    balanceService
+    config.wallets.map((wallet) => ({
+      label: wallet.label,
+      balanceService: new BalanceService(rpc, wallet.publicKey),
+    }))
   );
-  const state = new StateStore(
-    path.join(projectRoot, "data", "state.json"),
-    config.monitor.maxRecentSignatures,
-    config.monitor.maxRecentMovementIds
-  );
-  const monitor = new WalletMonitor(rpc, telegram, state);
+  const monitors = config.wallets.map((wallet, index) => {
+    // The first wallet keeps the original state file so existing checkpoints carry over.
+    const fileName = index === 0 ? "state.json" : `state-${wallet.address}.json`;
+    const state = new StateStore(
+      path.join(projectRoot, "data", fileName),
+      config.monitor.maxRecentSignatures,
+      config.monitor.maxRecentMovementIds
+    );
+    return new WalletMonitor(rpc, telegram, state, wallet, index === 0);
+  });
 
   let shuttingDown = false;
+  const stopMonitors = async (): Promise<void> => {
+    await Promise.all(monitors.map((monitor) => monitor.stop()));
+  };
   const shutdown = async (signal: string, exitCode: number): Promise<void> => {
     if (shuttingDown) return;
     shuttingDown = true;
     console.log(`[SHUTDOWN] ${signal} received`);
-    await monitor.stop();
+    await stopMonitors();
     telegram.stop(signal);
     process.exit(exitCode);
   };
@@ -48,11 +56,13 @@ async function main(): Promise<void> {
   process.once("SIGTERM", () => void shutdown("SIGTERM", 0));
 
   try {
-    await monitor.start();
+    for (const monitor of monitors) await monitor.start();
     await telegram.start();
-    console.log(`[STARTUP] Monitoring active for ${config.wallet.label}`);
+    console.log(
+      `[STARTUP] Monitoring active for ${config.wallets.map((wallet) => wallet.label).join(", ")}`
+    );
   } catch (error) {
-    await monitor.stop();
+    await stopMonitors();
     telegram.stop("startup failure");
     throw error;
   }
