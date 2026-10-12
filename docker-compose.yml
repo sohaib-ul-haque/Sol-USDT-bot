@@ -1,0 +1,11 @@
+services:
+  monitor:
+    build: .
+    container_name: sol-usdt-monitor
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - monitor-data:/app/data
+
+volumes:
+  monitor-data:
